@@ -2064,6 +2064,33 @@ Happy birthday, meli chotu baby. Here's to every ordinary afternoon that somehow
     }).catch((err)=>{
       console.warn('Background music blocked or failed to load:', err);
     });
+
+    // Prime the finale track inside this same user gesture so mobile
+    // browsers (iOS Safari especially) don't block it later when the
+    // scroll-triggered IntersectionObserver calls play() on its own,
+    // without a fresh tap/click backing it.
+    bgFinale.volume = 0;
+    bgFinale.play().then(()=>{
+      bgFinale.pause();
+      bgFinale.currentTime = 0;
+    }).catch((err)=>{
+      console.warn('Finale theme priming failed:', err);
+    });
+
+    // Prime the vinyl/voice recording too — it's started by a direct tap
+    // later (fine on its own), but duck/unduck and the "ended" handler
+    // call play() on the background tracks programmatically afterwards.
+    // Priming here means every later play()/pause() in that chain is
+    // already gesture-unlocked, so ducking back in stays seamless on phones.
+    audioEl.volume = 0;
+    audioEl.play().then(()=>{
+      audioEl.pause();
+      audioEl.currentTime = 0;
+      audioEl.volume = 1;
+    }).catch((err)=>{
+      audioEl.volume = 1;
+      console.warn('Voice recording priming failed:', err);
+    });
   }
 
   function switchBgTo(zone){
