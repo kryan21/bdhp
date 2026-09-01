@@ -2085,6 +2085,31 @@ Happy birthday, meli chotu baby. Here's to every ordinary afternoon that somehow
 
   // called on the cover-open click, so the very first play() happens
   // inside a real user gesture and isn't blocked by autoplay rules
+  // Unlock an <audio> element for later programmatic play() calls,
+  // without ever letting it actually be heard. Safari (esp. iOS) can
+  // start emitting real audio samples during the gap between calling
+  // play() and its promise resolving — even while muted=true — if the
+  // pause() only happens inside a later .then(). Calling pause()
+  // immediately and synchronously, right after play(), closes that gap:
+  // playback is stopped before Safari's audio pipeline gets a chance to
+  // output anything, so there's no blip/overlap.
+  function primeAudio(audio){
+    audio.muted = true;
+    let playPromise;
+    try{
+      playPromise = audio.play();
+    } catch(err){
+      audio.muted = false;
+      return;
+    }
+    audio.pause();
+    audio.currentTime = 0;
+    if(playPromise && typeof playPromise.catch === 'function'){
+      playPromise.catch(()=>{});
+    }
+    audio.muted = false;
+  }
+
   function startBgMusic(){
     if(bgStarted) return;
     bgStarted = true;
@@ -2099,34 +2124,14 @@ Happy birthday, meli chotu baby. Here's to every ordinary afternoon that somehow
     // browsers (iOS Safari especially) don't block it later when the
     // scroll-triggered IntersectionObserver calls play() on its own,
     // without a fresh tap/click backing it.
-    // muted=true (not just volume=0) is used because volume changes can
-    // lag by a frame or two on some browsers, which briefly let the
-    // finale track be audible at the same time as the main theme.
-    // muted is instant and guaranteed silent.
-    bgFinale.muted = true;
-    bgFinale.play().then(()=>{
-      bgFinale.pause();
-      bgFinale.currentTime = 0;
-      bgFinale.muted = false;
-    }).catch((err)=>{
-      bgFinale.muted = false;
-      console.warn('Finale theme priming failed:', err);
-    });
+    primeAudio(bgFinale);
 
     // Prime the vinyl/voice recording too — it's started by a direct tap
     // later (fine on its own), but duck/unduck and the "ended" handler
     // call play() on the background tracks programmatically afterwards.
     // Priming here means every later play()/pause() in that chain is
     // already gesture-unlocked, so ducking back in stays seamless on phones.
-    audioEl.muted = true;
-    audioEl.play().then(()=>{
-      audioEl.pause();
-      audioEl.currentTime = 0;
-      audioEl.muted = false;
-    }).catch((err)=>{
-      audioEl.muted = false;
-      console.warn('Voice recording priming failed:', err);
-    });
+    primeAudio(audioEl);
   }
 
   function switchBgTo(zone){
@@ -2421,20 +2426,41 @@ Happy birthday, meli chotu baby. Here's to every ordinary afternoon that somehow
     }
   }
 
+  // fade the voice recording itself in/out too, instead of snapping to
+  // full volume or cutting off dead — matches the soft crossfade feel of
+  // the background theme switch
+  const VOICE_FADE_MS = 700;
+  const VOICE_TARGET_VOLUME = 1;
+  const VOICE_TAIL_FADE_SEC = 1.5; // start easing out this many seconds before it ends naturally
+  let voiceTailFading = false;
+
+  audioEl.addEventListener('timeupdate', ()=>{
+    if(voiceTailFading || audioEl.paused) return;
+    const dur = audioEl.duration;
+    if(!isFinite(dur) || dur <= 0) return;
+    if(dur - audioEl.currentTime <= VOICE_TAIL_FADE_SEC){
+      voiceTailFading = true;
+      fadeAudioTo(audioEl, 0, VOICE_TAIL_FADE_SEC * 1000);
+    }
+  });
+
   function togglePlayback(){
     if(audioFailed){ audioNote.classList.add('show'); return; }
     if(audioEl.paused){
+      voiceTailFading = false;
+      audioEl.volume = 0;
       audioEl.play().then(()=>{
         setPlayingUI(true);
         duckBgMusic();
+        fadeAudioTo(audioEl, VOICE_TARGET_VOLUME, VOICE_FADE_MS);
       }).catch(()=>{
         audioFailed = true;
         audioNote.classList.add('show');
       });
     } else {
-      audioEl.pause();
       setPlayingUI(false);
       unduckBgMusic();
+      fadeAudioTo(audioEl, 0, VOICE_FADE_MS);
     }
   }
 
@@ -2447,6 +2473,8 @@ Happy birthday, meli chotu baby. Here's to every ordinary afternoon that somehow
   audioEl.addEventListener('ended', ()=>{
     setPlayingUI(false);
     unduckBgMusic();
+    voiceTailFading = false;
+    audioEl.volume = VOICE_TARGET_VOLUME;
   });
 
   // reveal the floating toggle once the cover has been opened
