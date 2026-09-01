@@ -2099,11 +2099,17 @@ Happy birthday, meli chotu baby. Here's to every ordinary afternoon that somehow
     // browsers (iOS Safari especially) don't block it later when the
     // scroll-triggered IntersectionObserver calls play() on its own,
     // without a fresh tap/click backing it.
-    bgFinale.volume = 0;
+    // muted=true (not just volume=0) is used because volume changes can
+    // lag by a frame or two on some browsers, which briefly let the
+    // finale track be audible at the same time as the main theme.
+    // muted is instant and guaranteed silent.
+    bgFinale.muted = true;
     bgFinale.play().then(()=>{
       bgFinale.pause();
       bgFinale.currentTime = 0;
+      bgFinale.muted = false;
     }).catch((err)=>{
+      bgFinale.muted = false;
       console.warn('Finale theme priming failed:', err);
     });
 
@@ -2112,13 +2118,13 @@ Happy birthday, meli chotu baby. Here's to every ordinary afternoon that somehow
     // call play() on the background tracks programmatically afterwards.
     // Priming here means every later play()/pause() in that chain is
     // already gesture-unlocked, so ducking back in stays seamless on phones.
-    audioEl.volume = 0;
+    audioEl.muted = true;
     audioEl.play().then(()=>{
       audioEl.pause();
       audioEl.currentTime = 0;
-      audioEl.volume = 1;
+      audioEl.muted = false;
     }).catch((err)=>{
-      audioEl.volume = 1;
+      audioEl.muted = false;
       console.warn('Voice recording priming failed:', err);
     });
   }
